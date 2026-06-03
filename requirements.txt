@@ -1,0 +1,4 @@
+pandas>=3.0
+pyarrow>=24.0
+ipykernel>=7.0
+sentence-transformers>=5.0
