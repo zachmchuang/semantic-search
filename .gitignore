@@ -1,0 +1,4 @@
+data/candidates.parquet
+.venv
+.vscode
+.cursor
