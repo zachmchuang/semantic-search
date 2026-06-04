@@ -1,4 +1,7 @@
 data/candidates.parquet
+data/candidate_profiles.parquet
+data/candidate_embeddings.npy
 .venv
 .vscode
 .cursor
+.env
