@@ -1,15 +1,31 @@
 # semantic-search
 
+Match job descriptions to candidate profiles via Qwen embeddings and Elasticsearch kNN.
+
 ### Setup
+
+```bash
+git clone git@github.com:zachmchuang/semantic-search.git && cd semantic-search
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && mkdir data
 ```
-git clone git@github.com:zachmchuang/semantic-search.git
-cd semantic-search
-mkdir data
+
+Download parquet files into `data/`:
+
+- Candidates: [lang-uk/recruitment-dataset-candidate-profiles-english](https://huggingface.co/datasets/lang-uk/recruitment-dataset-candidate-profiles-english) → `candidate_profiles.parquet`
+- Jobs: [lang-uk/recruitment-dataset-job-descriptions-english](https://huggingface.co/datasets/lang-uk/recruitment-dataset-job-descriptions-english) → `job_profiles.parquet`
+
+`.env`:
+
 ```
-Download [this dataset](https://huggingface.co/datasets/lang-uk/recruitment-dataset-candidate-profiles-english)
+EMBED_API_KEY=...
+ES_PASSWORD=...
+```
 
-`mv train-00000-of-00001.parquet data/candidates.parquet`
+### Workflow
 
-### Project Description
+1. `notebooks/candidate_profile_embedding.ipynb` — embed candidates → index `candidate_profiles`
+2. `notebooks/job_profile_embedding.ipynb` — embed jobs → index `job_profiles`
+3. `notebooks/job_to_candidate_search.ipynb` — kNN search: job embedding → top-k candidates
 
-We have a dataset of candidate profiles. Convert each candidate into a profile string. Embed each profile string with [https://huggingface.co/microsoft/harrier-oss-v1-0.6b](https://huggingface.co/microsoft/harrier-oss-v1-0.6b) model using the 'semantically similar text' prompt. Load all of the embedded profiles into ElasticSearch/Qdrant seperately and run vector search on embedded job descriptions of the same format. 
+Shared logic lives in `core/`. Both pipelines use `Qwen/Qwen3-Embedding-0.6B` (1024-dim cosine vectors).

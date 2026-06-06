@@ -1,6 +1,11 @@
 data/candidates.parquet
 data/candidate_profiles.parquet
 data/candidate_embeddings.npy
+data/embed_progress.json
+data/job_profiles.parquet
+data/job_embeddings.npy
+data/job_embed_progress.json
+data/job_candidate_matches.jsonl
 .venv
 .vscode
 .cursor
