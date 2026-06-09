@@ -31,12 +31,15 @@ headers = {
 
 
 class EmbedError(Exception):
+    """Raised when the embedding API returns a non-2xx response."""
+
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code
         super().__init__(message)
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Call the embedding API for one batch of texts."""
     response = requests.post(
         EMBED_API_URL,
         headers=headers,
@@ -50,6 +53,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 def run_benchmark(texts: list[str], batch_size: int, outer: tqdm | None = None) -> dict:
+    """Embed all texts at the given batch size and return timing stats."""
     batch_starts = list(range(0, len(texts), batch_size))
     start = time.perf_counter()
     docs_done = 0
@@ -93,6 +97,7 @@ def run_benchmark(texts: list[str], batch_size: int, outer: tqdm | None = None) 
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI flags for doc count and batch sizes to test."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--num-docs", type=int, default=NUM_DOCS)
     parser.add_argument(
@@ -107,6 +112,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def format_result(result: dict, total_docs: int) -> str:
+    """Format one benchmark row for terminal output."""
     if result["error"]:
         return (
             f"batch={result['batch_size']:>3}  FAILED ({result['error']}) "
@@ -121,6 +127,7 @@ def format_result(result: dict, total_docs: int) -> str:
 
 
 def main() -> None:
+    """Run warmup, then benchmark each batch size and print a summary."""
     global NUM_DOCS
     args = parse_args()
     NUM_DOCS = args.num_docs

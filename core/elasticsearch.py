@@ -1,3 +1,5 @@
+"""Elasticsearch client helpers: index setup, bulk load, and kNN search."""
+
 from collections.abc import Iterator
 from typing import Any
 
@@ -5,12 +7,13 @@ import numpy as np
 import pandas as pd
 from elasticsearch import Elasticsearch, NotFoundError, helpers
 
-from core.config import ElasticsearchConfig
+from core.config import ElasticsearchConfig, VectorIndexConfig
 from core.indices import CANDIDATE_INDEX, JOB_INDEX
 from core.profiles import field_value
 
 
 def get_es_client(config: ElasticsearchConfig | None = None) -> Elasticsearch:
+    """Create an authenticated Elasticsearch client from config or env vars."""
     cfg = config or ElasticsearchConfig.from_env()
     return Elasticsearch(
         cfg.url,
@@ -24,8 +27,11 @@ def create_index(
     index: str,
     mappings: dict,
     *,
+    vector_config: VectorIndexConfig | None = None,
     recreate: bool = True,
 ) -> None:
+    """Create an index with field mappings; optionally delete an existing one first."""
+    cfg = vector_config or VectorIndexConfig.from_env()
     if recreate:
         try:
             es.indices.delete(index=index)
@@ -33,7 +39,11 @@ def create_index(
         except NotFoundError:
             pass
 
-    es.indices.create(index=index, mappings=mappings)
+    es.indices.create(
+        index=index,
+        mappings=mappings,
+        settings=cfg.to_index_settings(),
+    )
     print(f'Created index: {index}')
 
 
@@ -44,6 +54,7 @@ def bulk_index(
     *,
     chunk_size: int = 500,
 ) -> tuple[int, list]:
+    """Stream documents into Elasticsearch in chunks; returns success count and errors."""
     success, errors = helpers.bulk(
         es,
         actions,
@@ -69,11 +80,48 @@ def knn_search(
     filters: list[dict] | None = None,
     source: list[str] | None = None,
 ) -> dict:
+    """Find the k nearest documents by cosine similarity to query_vector."""
     knn: dict[str, Any] = {
         'field': 'embedding',
         'query_vector': query_vector,
         'k': k,
+        # num_candidates controls recall vs speed in the approximate kNN index.
         'num_candidates': num_candidates,
+    }
+    if filters:
+        knn['filter'] = filters
+
+    return es.search(
+        index=index,
+        knn=knn,
+        _source=source,
+    )
+
+
+def knn_search_by_job_id(
+    es: Elasticsearch,
+    index: str,
+    job_index: str,
+    job_id: str,
+    *,
+    k: int = 10,
+    num_candidates: int = 100,
+    filters: list[dict] | None = None,
+    source: list[str] | None = None,
+) -> dict:
+    """kNN search using a job's stored embedding (ES 9.4+ lookup API)."""
+    knn: dict[str, Any] = {
+        'field': 'embedding',
+        'k': k,
+        'num_candidates': num_candidates,
+        # Fetch the query vector from another document instead of passing it in.
+        'query_vector_builder': {
+            'lookup': {
+                'index': job_index,
+                'id': job_id,
+                'path': 'embedding',
+            }
+        },
     }
     if filters:
         knn['filter'] = filters
@@ -92,6 +140,7 @@ def candidate_actions(
     index: str = CANDIDATE_INDEX,
     id_column: str = 'id',
 ) -> Iterator[dict]:
+    """Yield bulk-index actions for candidate rows and their embedding vectors."""
     for i in range(len(df)):
         row = df.iloc[i]
         yield {
@@ -118,6 +167,7 @@ def job_actions(
     id_column: str = 'id',
     description_column: str | None = None,
 ) -> Iterator[dict]:
+    """Yield bulk-index actions for job rows and their embedding vectors."""
     desc_col = description_column or _resolve_column(
         df,
         'Long Description',
@@ -153,6 +203,7 @@ def job_actions(
 
 
 def _resolve_column(df: pd.DataFrame, *names: str) -> str | None:
+    """Pick the first column name that exists in df (case-insensitive fallback)."""
     lower_map = {col.lower(): col for col in df.columns}
     for name in names:
         if name in df.columns:
@@ -163,6 +214,7 @@ def _resolve_column(df: pd.DataFrame, *names: str) -> str | None:
 
 
 def _field_from_row(row: pd.Series, *names: str, default=''):
+    """Return the first non-empty value from row for any of the given column names."""
     for name in names:
         if name in row.index:
             value = row[name]

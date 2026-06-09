@@ -1,3 +1,5 @@
+"""Call the embedding API and persist large embedding runs to disk."""
+
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -9,10 +11,12 @@ from tqdm.auto import tqdm
 
 from core.config import EmbeddingConfig
 
+# Each worker thread gets its own HTTP session (requests.Session is not thread-safe).
 _thread_local = threading.local()
 
 
 def _get_session(config: EmbeddingConfig) -> requests.Session:
+    """Return a per-thread HTTP session with auth headers already set."""
     session = getattr(_thread_local, 'session', None)
     if session is None:
         session = requests.Session()
@@ -27,6 +31,7 @@ def _get_session(config: EmbeddingConfig) -> requests.Session:
 
 
 def embed_texts(texts: list[str], config: EmbeddingConfig | None = None) -> list[list[float]]:
+    """Embed a batch of strings; returns one vector per input text."""
     cfg = config or EmbeddingConfig.from_env()
     response = _get_session(cfg).post(
         cfg.api_url,
@@ -34,23 +39,28 @@ def embed_texts(texts: list[str], config: EmbeddingConfig | None = None) -> list
         timeout=300,
     )
     response.raise_for_status()
+    # API may return embeddings out of order; sort by index before extracting vectors.
     data = sorted(response.json()['data'], key=lambda item: item['index'])
     return [item['embedding'] for item in data]
 
 
 def load_completed_starts(progress_path: Path, total: int, batch_size: int) -> set[int]:
+    """Read a progress file and return batch start offsets that finished successfully."""
     if not progress_path.exists():
         return set()
     progress = json.loads(progress_path.read_text())
+    # Ignore stale progress if the dataset size changed.
     if progress.get('total') != total:
         return set()
     if 'completed_starts' in progress:
         return set(progress['completed_starts'])
+    # Older progress format: infer completed batches from next_offset.
     next_offset = int(progress.get('next_offset', 0))
     return set(range(0, next_offset, batch_size))
 
 
 def contiguous_offset(completed_starts: set[int], batch_size: int, total: int) -> int:
+    """First batch offset not yet done when batches must complete in order from 0."""
     offset = 0
     while offset < total and offset in completed_starts:
         offset += batch_size
@@ -63,6 +73,7 @@ def save_progress(
     completed_starts: set[int],
     batch_size: int,
 ) -> None:
+    """Write progress JSON so a crashed run can resume later."""
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     progress_path.write_text(
         json.dumps(
@@ -80,6 +91,7 @@ def _embed_batch(
     job: tuple[int, list[str]],
     config: EmbeddingConfig,
 ) -> tuple[int, list[list[float]]]:
+    """Worker task: embed one chunk and return its start offset with the vectors."""
     start, chunk = job
     return start, embed_texts(chunk, config)
 
@@ -90,11 +102,13 @@ def embed_all(
     progress_path: Path,
     config: EmbeddingConfig | None = None,
 ) -> np.ndarray:
+    """Embed all texts in parallel, writing results to a memory-mapped file on disk."""
     cfg = config or EmbeddingConfig.from_env()
     total = len(texts)
     completed_starts = load_completed_starts(progress_path, total, cfg.batch_size)
     resume_offset = contiguous_offset(completed_starts, cfg.batch_size, total)
 
+    # memmap keeps the full (total x dim) array on disk instead of in RAM.
     if not embeddings_path.exists():
         emb = np.memmap(
             embeddings_path,
@@ -135,7 +149,7 @@ def embed_all(
             start, vectors = future.result()
             end = start + len(vectors)
             emb[start:end] = vectors
-            emb.flush()
+            emb.flush()  # persist this batch before updating progress
             completed_starts.add(start)
             save_progress(progress_path, total, completed_starts, cfg.batch_size)
 

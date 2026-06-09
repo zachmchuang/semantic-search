@@ -1,11 +1,14 @@
-from core.config import EmbeddingConfig
+"""Elasticsearch index names and field mappings for candidates and jobs."""
+
+from core.config import VectorIndexConfig
 
 CANDIDATE_INDEX = 'candidate_profiles'
 JOB_INDEX = 'job_profiles'
 
 
-def candidate_mappings(config: EmbeddingConfig | None = None) -> dict:
-    dim = (config or EmbeddingConfig.from_env()).dim
+def candidate_mappings(vector_config: VectorIndexConfig | None = None) -> dict:
+    """Field schema for the candidate index, including a searchable embedding vector."""
+    cfg = vector_config or VectorIndexConfig.from_env()
     return {
         'properties': {
             'id': {'type': 'keyword'},
@@ -15,13 +18,14 @@ def candidate_mappings(config: EmbeddingConfig | None = None) -> dict:
             'experience_years': {'type': 'float'},
             'primary_keyword': {'type': 'keyword'},
             'cv_lang': {'type': 'keyword'},
-            'embedding': _vector_field(dim),
+            'embedding': cfg.to_vector_field(),
         }
     }
 
 
-def job_mappings(config: EmbeddingConfig | None = None) -> dict:
-    dim = (config or EmbeddingConfig.from_env()).dim
+def job_mappings(vector_config: VectorIndexConfig | None = None) -> dict:
+    """Field schema for the job index, including a searchable embedding vector."""
+    cfg = vector_config or VectorIndexConfig.from_env()
     return {
         'properties': {
             'id': {'type': 'keyword'},
@@ -34,15 +38,6 @@ def job_mappings(config: EmbeddingConfig | None = None) -> dict:
             'english_level': {'type': 'keyword'},
             'published': {'type': 'keyword'},
             'description_lang': {'type': 'keyword'},
-            'embedding': _vector_field(dim),
+            'embedding': cfg.to_vector_field(),
         }
-    }
-
-
-def _vector_field(dim: int) -> dict:
-    return {
-        'type': 'dense_vector',
-        'dims': dim,
-        'index': True,
-        'similarity': 'cosine',
     }
