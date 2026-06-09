@@ -35,12 +35,15 @@ _thread_local = threading.local()
 
 
 class EmbedError(Exception):
+    """Raised when the embedding API returns a non-2xx response."""
+
     def __init__(self, status_code: int, message: str):
         self.status_code = status_code
         super().__init__(message)
 
 
 def get_session() -> requests.Session:
+    """Return a per-thread HTTP session (safe for concurrent workers)."""
     session = getattr(_thread_local, "session", None)
     if session is None:
         session = requests.Session()
@@ -50,6 +53,7 @@ def get_session() -> requests.Session:
 
 
 def embed_texts(texts: list[str], session: requests.Session | None = None) -> list[list[float]]:
+    """Call the embedding API for one batch of texts."""
     client = session or get_session()
     response = client.post(
         EMBED_API_URL,
@@ -63,6 +67,7 @@ def embed_texts(texts: list[str], session: requests.Session | None = None) -> li
 
 
 def make_batches(texts: list[str], batch_size: int) -> list[tuple[int, list[str]]]:
+    """Split texts into (start_offset, chunk) pairs for parallel workers."""
     return [
         (offset, texts[offset : offset + batch_size])
         for offset in range(0, len(texts), batch_size)
@@ -70,12 +75,14 @@ def make_batches(texts: list[str], batch_size: int) -> list[tuple[int, list[str]
 
 
 def embed_batch(job: tuple[int, list[str]]) -> tuple[int, int]:
+    """Worker task: embed one chunk and return its offset and doc count."""
     offset, chunk = job
     embed_texts(chunk)
     return offset, len(chunk)
 
 
 def run_sequential(texts: list[str], batch_size: int) -> dict:
+    """Embed all texts one batch at a time on a single thread."""
     batches = make_batches(texts, batch_size)
     session = get_session()
     start = time.perf_counter()
@@ -115,6 +122,7 @@ def run_sequential(texts: list[str], batch_size: int) -> dict:
 
 
 def run_concurrent(texts: list[str], batch_size: int, workers: int) -> dict:
+    """Embed all texts with ThreadPoolExecutor using the given worker count."""
     batches = make_batches(texts, batch_size)
     start = time.perf_counter()
     docs_done = 0
@@ -158,6 +166,7 @@ def run_concurrent(texts: list[str], batch_size: int, workers: int) -> dict:
 
 
 def main() -> None:
+    """Compare sequential vs concurrent embedding throughput across worker counts."""
     df = pq.read_table(DATASET_PATH).to_pandas()
     texts = df["profile_text"].head(NUM_DOCS).tolist()
     if len(texts) < NUM_DOCS:

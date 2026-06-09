@@ -1,13 +1,17 @@
+"""Turn spreadsheet rows into labeled text for embedding."""
+
 import pandas as pd
 
 
 def _clean(value) -> str:
+    """Normalize whitespace and convert missing values to an empty string."""
     if value is None or pd.isna(value):
         return ''
     return ' '.join(str(value).strip().split())
 
 
 def _get_field(row: pd.Series, *names: str, default=''):
+    """Try several possible column names and return the first non-empty value."""
     for name in names:
         if name in row.index:
             value = row[name]
@@ -18,6 +22,7 @@ def _get_field(row: pd.Series, *names: str, default=''):
 
 
 def field_value(row: pd.Series, name: str, default=''):
+    """Read a single column from a row, treating NaN/None as default."""
     value = row.get(name, default)
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return default
@@ -34,6 +39,7 @@ def row_to_candidate_profile(row: pd.Series) -> str:
     english_level = _clean(_get_field(row, 'English Level', 'english level'))
     primary_keyword = _clean(_get_field(row, 'Primary Keyword', 'primary keyword'))
 
+    # CV and Moreinfo often overlap; pick the longer text as bio and avoid duplication.
     if not cv or cv == moreinfo:
         bio, extra_cv = moreinfo, ''
     elif not moreinfo:
@@ -59,6 +65,7 @@ def row_to_candidate_profile(row: pd.Series) -> str:
         f'Primary keyword: {primary_keyword}' if primary_keyword else '',
         f'CV: {extra_cv}' if extra_cv else '',
     ]
+    # Join non-empty sections with newlines; skip blank lines entirely.
     return '\n'.join(section for section in sections if section)
 
 
