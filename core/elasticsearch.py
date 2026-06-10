@@ -9,7 +9,7 @@ from elasticsearch import Elasticsearch, NotFoundError, helpers
 
 from core.config import ElasticsearchConfig, VectorIndexConfig
 from core.indices import CANDIDATE_INDEX, JOB_INDEX
-from core.profiles import field_value
+from core.profiles import field_value, row_to_job_profile
 
 
 def get_es_client(config: ElasticsearchConfig | None = None) -> Elasticsearch:
@@ -183,7 +183,11 @@ def job_actions(
             '_id': row[id_column],
             '_source': {
                 'id': row[id_column],
-                'profile_text': row['profile_text'],
+                'profile_text': (
+                    row['profile_text']
+                    if 'profile_text' in row.index
+                    else row_to_job_profile(row)
+                ),
                 'position': _field_from_row(row, 'Position', 'position'),
                 'description': _field_from_row(row, desc_col) if desc_col else '',
                 'company_name': _field_from_row(row, 'Company Name', 'company name'),
